@@ -15,6 +15,20 @@ import re
 import logging
 import time
 from typing import Union, Optional, Tuple, Dict, Any
+from functools import lru_cache
+
+class DateError(ValueError):
+    """Date模块的特定异常基类"""
+    pass
+
+class InvalidDateFormatError(DateError):
+    """无效日期格式异常"""
+    pass
+
+class InvalidDateValueError(DateError):
+    """无效日期值异常"""
+    pass
+
 
 class DateLogger:
     """企业级日志记录器
@@ -122,7 +136,7 @@ class Date:
             elif isinstance(arg, (datetime.date, datetime.datetime)):
                 self._init_from_datetime(arg)
             else:
-                raise TypeError(f"不支持的参数类型: {type(arg)}")
+                raise InvalidDateFormatError(f"不支持的参数类型: {type(arg)}")
         elif len(args) == 3 and not kwargs:
             self._init_from_args(args[0], args[1], args[2])
         elif not args and kwargs:
@@ -132,7 +146,7 @@ class Date:
             today = datetime.date.today()
             self._init_from_datetime(today)
         else:
-            raise ValueError("无效的参数组合")
+            raise InvalidDateValueError("无效的参数组合")
         
         self._logger.info(f"创建Date对象: {self.year}-{self.month:02d}-{self.day:02d}, 格式: {self._input_format}")
     
@@ -141,6 +155,9 @@ class Date:
         # 移除分隔符并清理字符串
         clean_string = re.sub(r'[^\d]', '', date_string)
         
+        if not clean_string.isdigit():
+            raise InvalidDateFormatError(f"日期字符串包含非数字字符: {date_string}")
+
         if len(clean_string) == 4:  # YYYY
             self.year = int(clean_string)
             self.month = 1
@@ -157,7 +174,7 @@ class Date:
             self.day = int(clean_string[6:8])
             self._input_format = 'full'
         else:
-            raise ValueError(f"日期字符串格式无效: {date_string}")
+            raise InvalidDateFormatError(f"日期字符串格式无效: {date_string}")
         
         self._validate_date()
     
@@ -186,13 +203,21 @@ class Date:
     
     def _validate_date(self):
         """验证日期的有效性"""
+        if not (1 <= self.month <= 12):
+            raise InvalidDateValueError(f"无效的月份: {self.month}")
+        
+        max_days = calendar.monthrange(self.year, self.month)[1]
+        if not (1 <= self.day <= max_days):
+            raise InvalidDateValueError(f"无效的日期: {self.day} (对于 {self.year}-{self.month})")
+
         try:
             datetime.date(self.year, self.month, self.day)
         except ValueError as e:
-            raise ValueError(f"无效的日期: {self.year}-{self.month}-{self.day}") from e
+            raise InvalidDateValueError(f"无效的日期: {self.year}-{self.month}-{self.day}") from e
     
+    @lru_cache(maxsize=128)
     def _create_with_same_format(self, year: int, month: int, day: int) -> 'Date':
-        """创建具有相同格式的新Date对象"""
+        """创建具有相同格式的新Date对象 (带缓存)"""
         new_date = Date(year, month, day)
         new_date._input_format = self._input_format
         return new_date

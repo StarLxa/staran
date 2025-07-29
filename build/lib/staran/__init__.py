@@ -27,13 +27,21 @@ Staran - 企业级多功能工具库
     2025年04月15日
 """
 
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 __author__ = "Staran Team"
 __email__ = "team@staran.dev"
 __license__ = "MIT"
 
 # 导入核心模块
-from .date import Date, DateLogger, today, from_string
+from .date import (
+    Date, 
+    DateLogger, 
+    today, 
+    from_string,
+    DateError,
+    InvalidDateFormatError,
+    InvalidDateValueError
+)
 
 # 定义公共API
 __all__ = [
@@ -42,6 +50,9 @@ __all__ = [
     'DateLogger', 
     'today',
     'from_string',
+    'DateError',
+    'InvalidDateFormatError',
+    'InvalidDateValueError',
     
     # 元数据
     '__version__',

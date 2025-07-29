@@ -1,4 +1,4 @@
-# Staran v1.0.2 - 企业级多功能工具库
+# Staran v1.0.3 - 企业级多功能工具库
 
 [![Python Version](https://img.shields.io/badge/python-3.7%2B-blue.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -11,7 +11,7 @@
 `staran` 旨在成为一个可扩展的工具库，包含多个独立的、高质量的模块。每个模块都专注于解决特定领域的问题，并遵循统一的设计标准。
 
 ### 当前模块
-- **`date`**: 企业级日期处理工具 (v1.0.2)
+- **`date`**: 企业级日期处理工具 (v1.0.3)
 
 ### 未来模块
 - `file`: 文件处理工具
@@ -97,6 +97,29 @@ print(full_date.add_days(10))    # 20250425
 
 `date` 模块遵循统一的API命名规范，如 `from_*`, `to_*`, `get_*`, `is_*`, `add_*/subtract_*` 等，具体请参考 `staran/date/examples/basic_usage.py`。
 
+#### 4. 异常处理
+
+`date` 模块提供了一套清晰的异常类，以便更好地处理错误：
+
+- `DateError`: 所有日期相关错误的基类。
+- `InvalidDateFormatError`: 当输入字符串格式不正确时抛出。
+- `InvalidDateValueError`: 当日期值无效时（如月份为13）抛出。
+
+**示例:**
+```python
+from staran.date import Date, InvalidDateValueError, InvalidDateFormatError
+
+try:
+    Date("2025", 13, 1)
+except InvalidDateValueError as e:
+    print(e)
+
+try:
+    Date("invalid-date")
+except InvalidDateFormatError as e:
+    print(e)
+```
+
 ## 🧪 测试
 
 运行 `date` 模块的完整测试套件：
@@ -133,4 +156,4 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 
 ---
 
-**Staran v1.0.2** - 让工具开发变得简单而强大 ✨
+**Staran v1.0.3** - 让工具开发变得简单而强大 ✨
