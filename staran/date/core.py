@@ -14,7 +14,7 @@ import calendar
 import re
 import logging
 import time
-from typing import Union, Optional, Tuple, Dict, Any
+from typing import Union, Optional, Tuple, Dict, Any, List
 from functools import lru_cache
 
 class DateError(ValueError):
@@ -104,7 +104,16 @@ class Date:
     >>> print(date.format_chinese())     # 2025年04月15日
     >>> print(date.get_weekday())        # 1 (星期二)
     >>> print(date.is_weekend())         # False
+    
+    Raises:
+    -------
+    InvalidDateFormatError
+        当输入的日期格式无效时抛出
+    InvalidDateValueError
+        当日期值超出有效范围时抛出
     """
+    
+    __slots__ = ('year', 'month', 'day', '_input_format')
     
     # 类级别的日志记录器
     _logger = DateLogger()
@@ -215,9 +224,8 @@ class Date:
         except ValueError as e:
             raise InvalidDateValueError(f"无效的日期: {self.year}-{self.month}-{self.day}") from e
     
-    @lru_cache(maxsize=128)
     def _create_with_same_format(self, year: int, month: int, day: int) -> 'Date':
-        """创建具有相同格式的新Date对象 (带缓存)"""
+        """创建具有相同格式的新Date对象"""
         new_date = Date(year, month, day)
         new_date._input_format = self._input_format
         return new_date
@@ -259,6 +267,37 @@ class Date:
         """创建今日Date对象"""
         return cls(datetime.date.today())
     
+    @classmethod
+    def date_range(cls, start: Union[str, 'Date'], end: Union[str, 'Date'], 
+                   step: int = 1) -> List['Date']:
+        """生成日期范围
+        
+        Args:
+            start: 开始日期
+            end: 结束日期
+            step: 步长（天数）
+            
+        Returns:
+            日期列表
+        """
+        if isinstance(start, str):
+            start = cls.from_string(start)
+        if isinstance(end, str):
+            end = cls.from_string(end)
+            
+        dates = []
+        current = start
+        while current <= end:
+            dates.append(current)
+            current = current.add_days(step)
+        return dates
+    
+    @classmethod
+    def business_days(cls, start: Union[str, 'Date'], end: Union[str, 'Date']) -> List['Date']:
+        """生成工作日列表"""
+        dates = cls.date_range(start, end)
+        return [date for date in dates if date.is_business_day()]
+    
     # =============================================
     # to_* 系列：转换方法
     # =============================================
@@ -286,6 +325,26 @@ class Date:
     def to_timestamp(self) -> float:
         """转为时间戳"""
         return self.to_datetime_object().timestamp()
+    
+    def to_json(self) -> str:
+        """转为JSON字符串"""
+        import json
+        return json.dumps({
+            'date': self.format_iso(),
+            'format': self._input_format,
+            'year': self.year,
+            'month': self.month,
+            'day': self.day
+        })
+    
+    @classmethod
+    def from_json(cls, json_str: str) -> 'Date':
+        """从JSON字符串创建Date对象"""
+        import json
+        data = json.loads(json_str)
+        date = cls(data['year'], data['month'], data['day'])
+        date._input_format = data.get('format', 'iso')
+        return date
     
     # =============================================
     # format_* 系列：格式化方法
@@ -335,6 +394,67 @@ class Date:
         dt = self.to_datetime_object()
         return dt.strftime(fmt)
     
+    def format_weekday(self, lang: str = 'zh') -> str:
+        """格式化星期几"""
+        weekday = self.get_weekday()
+        if lang == 'zh':
+            weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日']
+        else:  # en
+            weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        return weekdays[weekday]
+    
+    def format_month_name(self, lang: str = 'zh') -> str:
+        """格式化月份名称"""
+        if lang == 'zh':
+            months = ['一月', '二月', '三月', '四月', '五月', '六月',
+                     '七月', '八月', '九月', '十月', '十一月', '十二月']
+        else:  # en
+            months = ['January', 'February', 'March', 'April', 'May', 'June',
+                     'July', 'August', 'September', 'October', 'November', 'December']
+        return months[self.month - 1]
+    
+    def format_relative(self, reference_date: Optional['Date'] = None, lang: str = 'zh') -> str:
+        """相对时间格式化"""
+        if reference_date is None:
+            reference_date = Date.today()
+        
+        diff_days = reference_date.calculate_difference_days(self)
+        
+        if lang == 'zh':
+            if diff_days == 0:
+                return "今天"
+            elif diff_days == 1:
+                return "明天"
+            elif diff_days == -1:
+                return "昨天"
+            elif diff_days == 2:
+                return "后天"
+            elif diff_days == -2:
+                return "前天"
+            elif 3 <= diff_days <= 6:
+                return f"{diff_days}天后"
+            elif -6 <= diff_days <= -3:
+                return f"{abs(diff_days)}天前"
+            elif 7 <= diff_days <= 13:
+                return "下周"
+            elif -13 <= diff_days <= -7:
+                return "上周"
+            elif diff_days > 0:
+                return f"{diff_days}天后"
+            else:
+                return f"{abs(diff_days)}天前"
+        else:  # en
+            if diff_days == 0:
+                return "today"
+            elif diff_days == 1:
+                return "tomorrow"
+            elif diff_days == -1:
+                return "yesterday"
+            elif diff_days > 0:
+                return f"in {diff_days} days"
+            else:
+                return f"{abs(diff_days)} days ago"
+    
     # =============================================
     # get_* 系列：获取方法
     # =============================================
@@ -364,6 +484,38 @@ class Date:
         """获取年末日期"""
         return self._create_with_same_format(self.year, 12, 31)
     
+    def get_quarter_start(self) -> 'Date':
+        """获取季度开始日期"""
+        quarter = self.get_quarter()
+        start_month = (quarter - 1) * 3 + 1
+        return self._create_with_same_format(self.year, start_month, 1)
+    
+    def get_quarter_end(self) -> 'Date':
+        """获取季度结束日期"""
+        quarter = self.get_quarter()
+        end_month = quarter * 3
+        if end_month == 3:
+            end_day = 31
+        elif end_month == 6:
+            end_day = 30
+        elif end_month == 9:
+            end_day = 30
+        else:  # 12
+            end_day = 31
+        return self._create_with_same_format(self.year, end_month, end_day)
+    
+    def get_week_start(self) -> 'Date':
+        """获取本周开始日期（周一）"""
+        days_since_monday = self.get_weekday()
+        start_date = self.subtract_days(days_since_monday)
+        return start_date
+    
+    def get_week_end(self) -> 'Date':
+        """获取本周结束日期（周日）"""
+        days_until_sunday = 6 - self.get_weekday()
+        end_date = self.add_days(days_until_sunday)
+        return end_date
+    
     def get_days_in_month(self) -> int:
         """获取当月天数"""
         return calendar.monthrange(self.year, self.month)[1]
@@ -371,6 +523,18 @@ class Date:
     def get_days_in_year(self) -> int:
         """获取当年天数"""
         return 366 if calendar.isleap(self.year) else 365
+    
+    def get_quarter(self) -> int:
+        """获取季度 (1-4)"""
+        return (self.month - 1) // 3 + 1
+    
+    def get_week_of_year(self) -> int:
+        """获取年内第几周 (ISO周数)"""
+        return self.to_date_object().isocalendar()[1]
+    
+    def get_day_of_year(self) -> int:
+        """获取年内第几天 (1-366)"""
+        return self.to_date_object().timetuple().tm_yday
     
     # =============================================
     # is_* 系列：判断方法
@@ -403,6 +567,55 @@ class Date:
     def is_year_end(self) -> bool:
         """是否为年末"""
         return self.month == 12 and self.day == 31
+    
+    def is_business_day(self) -> bool:
+        """是否为工作日（简单版本，仅考虑周末）"""
+        return self.get_weekday() < 5
+    
+    def is_quarter_start(self) -> bool:
+        """是否为季度开始"""
+        return self.day == 1 and self.month in [1, 4, 7, 10]
+    
+    def is_quarter_end(self) -> bool:
+        """是否为季度结束"""
+        quarter_end_months = {3: 31, 6: 30, 9: 30, 12: 31}
+        return (self.month in quarter_end_months and 
+                self.day == quarter_end_months[self.month])
+    
+    def is_holiday(self, country: str = 'CN') -> bool:
+        """是否为节假日（基础实现）
+        
+        Args:
+            country: 国家代码 ('CN', 'US', 'UK' 等)
+            
+        Returns:
+            是否为节假日
+            
+        Note:
+            这是一个基础实现，仅包含几个固定节假日
+            实际应用中可能需要更完整的节假日数据库
+        """
+        if country == 'CN':
+            # 中国固定节假日
+            fixed_holidays = [
+                (1, 1),   # 元旦
+                (5, 1),   # 劳动节
+                (10, 1),  # 国庆节
+                (10, 2),  # 国庆节
+                (10, 3),  # 国庆节
+            ]
+            return (self.month, self.day) in fixed_holidays
+        elif country == 'US':
+            # 美国固定节假日
+            fixed_holidays = [
+                (1, 1),   # New Year's Day
+                (7, 4),   # Independence Day
+                (12, 25), # Christmas Day
+            ]
+            return (self.month, self.day) in fixed_holidays
+        else:
+            # 未知国家，返回False
+            return False
     
     # =============================================
     # add_*/subtract_* 系列：运算方法
@@ -470,6 +683,27 @@ class Date:
     def calculate_difference_months(self, other: 'Date') -> int:
         """计算与另一个日期的月数差（近似）"""
         return (other.year - self.year) * 12 + (other.month - self.month)
+    
+    def calculate_age_years(self, reference_date: Optional['Date'] = None) -> int:
+        """计算年龄（以年为单位）"""
+        if reference_date is None:
+            reference_date = Date.today()
+        
+        age = reference_date.year - self.year
+        
+        # 如果还没到生日，年龄减1
+        if (reference_date.month, reference_date.day) < (self.month, self.day):
+            age -= 1
+            
+        return age
+    
+    def days_until(self, target_date: 'Date') -> int:
+        """计算距离目标日期还有多少天"""
+        return self.calculate_difference_days(target_date)
+    
+    def days_since(self, start_date: 'Date') -> int:
+        """计算从起始日期过了多少天"""
+        return start_date.calculate_difference_days(self)
     
     # =============================================
     # 配置和日志方法

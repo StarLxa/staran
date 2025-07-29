@@ -508,10 +508,12 @@ class TestDateErrorHandling(unittest.TestCase):
     
     def test_invalid_argument_types(self):
         """测试无效参数类型"""
-        with self.assertRaises(TypeError):
+        from staran.date.core import InvalidDateFormatError
+        
+        with self.assertRaises(InvalidDateFormatError):
             Date([2025, 4, 15])  # 列表不支持
         
-        with self.assertRaises(TypeError):
+        with self.assertRaises(InvalidDateFormatError):
             Date({'year': 2025})  # 字典不支持
 
 

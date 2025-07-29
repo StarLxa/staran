@@ -8,12 +8,18 @@ Staran Date 模块
 提供企业级日期处理功能。
 """
 
-__version__ = "1.0.2"
+__version__ = "1.0.6"
 __author__ = "Staran Team"
 __email__ = "team@staran.dev"
 
 # 导入核心类和功能
-from .core import Date, DateLogger
+from .core import (
+    Date, 
+    DateLogger,
+    DateError,
+    InvalidDateFormatError,
+    InvalidDateValueError
+)
 
 # 导出便捷函数
 def today() -> Date:
@@ -31,7 +37,10 @@ def from_string(date_string: str) -> Date:
 # 定义公共API
 __all__ = [
     'Date',
-    'DateLogger', 
+    'DateLogger',
+    'DateError',
+    'InvalidDateFormatError', 
+    'InvalidDateValueError',
     'today',
     'from_string'
 ]
