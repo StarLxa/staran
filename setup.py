@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="staran",
-    version="1.0.7",
+    version="1.0.8",
     description="staran - 轻量级Python日期工具库",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
@@ -29,7 +29,7 @@ setup(
         "Operating System :: OS Independent",
     ],
     python_requires=">=3.7",
-    keywords="date datetime utilities time-processing",
+    keywords="date datetime utilities time-processing lunar calendar i18n",
     project_urls={
         "Bug Reports": "https://github.com/starlxa/staran/issues",
         "Source": "https://github.com/starlxa/staran",

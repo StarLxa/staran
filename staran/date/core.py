@@ -17,6 +17,10 @@ import time
 from typing import Union, Optional, Tuple, Dict, Any, List
 from functools import lru_cache
 
+# 导入农历和多语言模块
+from .lunar import LunarDate
+from .i18n import Language
+
 class DateError(ValueError):
     """Date模块的特定异常基类"""
     pass
@@ -80,11 +84,18 @@ class Date:
     支持YYYY、YYYYMM、YYYYMMDD等多种输入格式，并在运算中
     自动保持原始格式。
     
+    v1.0.8 新增功能:
+    - 农历日期支持 (from_lunar, to_lunar, format_lunar等)
+    - 多语言配置 (中简、中繁、日、英四种语言)
+    - 全局语言设置，一次配置全局生效
+    
     特性:
     ----
-    - 86+个统一命名的API方法
+    - 120+个统一命名的API方法
     - 智能格式记忆和保持
     - 企业级日志记录
+    - 农历与公历互转
+    - 多语言本地化支持
     - 类型安全的日期转换
     - 向后兼容的旧API支持
     
@@ -98,6 +109,14 @@ class Date:
     >>> print(date1.add_months(2))  # 202506
     >>> print(date2.add_days(10))   # 20250425
     >>> 
+    >>> # 农历支持 (v1.0.8)
+    >>> lunar_date = Date.from_lunar(2025, 3, 15)  # 农历2025年三月十五
+    >>> print(lunar_date.to_lunar().format_chinese())  # 农历2025年三月十五
+    >>> 
+    >>> # 多语言支持 (v1.0.8)
+    >>> Date.set_language('en_US')  # 设置全局语言为英语
+    >>> print(date2.format_localized())  # 04/15/2025
+    >>> print(date2.format_weekday_localized())  # Tuesday
     >>> # 统一API命名
     >>> date = Date('20250415')
     >>> print(date.format_iso())         # 2025-04-15
@@ -311,6 +330,83 @@ class Date:
         return cls(datetime.date.today())
     
     @classmethod
+    def from_lunar(cls, year: int, month: int, day: int, is_leap: bool = False) -> 'Date':
+        """从农历日期创建Date对象 (v1.0.8)
+        
+        Args:
+            year: 农历年份
+            month: 农历月份
+            day: 农历日期
+            is_leap: 是否闰月
+            
+        Returns:
+            对应的公历Date对象
+            
+        Example:
+            >>> date = Date.from_lunar(2025, 3, 15)  # 农历2025年三月十五
+        """
+        lunar_date = LunarDate(year, month, day, is_leap)
+        solar_date = lunar_date.to_solar()
+        return cls(solar_date)
+    
+    @classmethod
+    def from_lunar_string(cls, lunar_string: str) -> 'Date':
+        """从农历字符串创建Date对象 (v1.0.8)
+        
+        支持格式:
+        - "20250315" (农历2025年3月15日)
+        - "2025闰0315" (农历2025年闰3月15日)
+        
+        Args:
+            lunar_string: 农历日期字符串
+            
+        Returns:
+            对应的公历Date对象
+        """
+        # 解析闰月标记
+        is_leap = '闰' in lunar_string
+        clean_string = lunar_string.replace('闰', '')
+        
+        if len(clean_string) != 8:
+            raise InvalidDateFormatError(f"农历日期字符串格式无效: {lunar_string}")
+        
+        year = int(clean_string[:4])
+        month = int(clean_string[4:6])
+        day = int(clean_string[6:8])
+        
+        return cls.from_lunar(year, month, day, is_leap)
+    
+    @classmethod
+    def set_language(cls, language_code: str) -> None:
+        """设置全局语言 (v1.0.8)
+        
+        一次设置，全局生效。支持中简、中繁、日、英四种语言。
+        
+        Args:
+            language_code: 语言代码
+                - 'zh_CN': 中文简体
+                - 'zh_TW': 中文繁体  
+                - 'ja_JP': 日语
+                - 'en_US': 英语
+                
+        Example:
+            >>> Date.set_language('en_US')  # 设置为英语
+            >>> Date.set_language('zh_TW')  # 设置为繁体中文
+        """
+        Language.set_global_language(language_code)
+        cls._logger.info(f"全局语言已设置为: {language_code}")
+    
+    @classmethod
+    def get_language(cls) -> str:
+        """获取当前全局语言设置 (v1.0.8)"""
+        return Language.get_global_language()
+    
+    @classmethod
+    def get_supported_languages(cls) -> Dict[str, str]:
+        """获取支持的语言列表 (v1.0.8)"""
+        return Language.get_supported_languages()
+    
+    @classmethod
     def date_range(cls, start: Union[str, 'Date'], end: Union[str, 'Date'], 
                    step: int = 1) -> List['Date']:
         """生成日期范围
@@ -429,6 +525,36 @@ class Date:
         if timezone_offset != 0:
             dt = dt - datetime.timedelta(hours=timezone_offset)
         return dt.timestamp()
+    
+    def to_lunar(self) -> LunarDate:
+        """转为农历日期对象 (v1.0.8)
+        
+        Returns:
+            对应的农历日期对象
+            
+        Example:
+            >>> date = Date('20250415')
+            >>> lunar = date.to_lunar()
+            >>> print(lunar.format_chinese())  # 农历2025年三月十八
+        """
+        return LunarDate.from_solar(self.to_date_object())
+    
+    def to_lunar_string(self, compact: bool = True) -> str:
+        """转为农历字符串 (v1.0.8)
+        
+        Args:
+            compact: 是否使用紧凑格式
+            
+        Returns:
+            农历日期字符串
+            
+        Example:
+            >>> date = Date('20250415')
+            >>> print(date.to_lunar_string())  # 20250318
+            >>> print(date.to_lunar_string(False))  # 农历2025年三月十八
+        """
+        lunar = self.to_lunar()
+        return lunar.format_compact() if compact else lunar.format_chinese()
     
     def to_json(self, include_metadata: bool = True) -> str:
         """转为JSON字符串
@@ -628,6 +754,155 @@ class Date:
             else:
                 return f"{abs(diff_days)} days ago"
     
+    def format_localized(self, format_type: str = 'full', language_code: Optional[str] = None) -> str:
+        """多语言本地化格式 (v1.0.8)
+        
+        Args:
+            format_type: 格式类型 (full, short, year_month, month_day)
+            language_code: 语言代码，None时使用全局设置
+            
+        Returns:
+            本地化格式的日期字符串
+            
+        Example:
+            >>> Date.set_language('en_US')
+            >>> date = Date('20250415')
+            >>> print(date.format_localized())  # 04/15/2025
+            >>> print(date.format_localized('short'))  # 04/15/2025
+        """
+        return Language.format_date(self.year, self.month, self.day, format_type, language_code)
+    
+    def format_weekday_localized(self, short: bool = False, language_code: Optional[str] = None) -> str:
+        """多语言星期几格式 (v1.0.8)
+        
+        Args:
+            short: 是否使用短名称
+            language_code: 语言代码，None时使用全局设置
+            
+        Returns:
+            本地化的星期几名称
+            
+        Example:
+            >>> Date.set_language('ja_JP')
+            >>> date = Date('20250415')  # 星期二
+            >>> print(date.format_weekday_localized())  # 火曜日
+            >>> print(date.format_weekday_localized(short=True))  # 火
+        """
+        weekday_index = self.get_weekday()
+        return Language.get_weekday_name(weekday_index, short, language_code)
+    
+    def format_month_localized(self, short: bool = False, language_code: Optional[str] = None) -> str:
+        """多语言月份格式 (v1.0.8)
+        
+        Args:
+            short: 是否使用短名称
+            language_code: 语言代码，None时使用全局设置
+            
+        Returns:
+            本地化的月份名称
+        """
+        return Language.get_month_name(self.month, short, language_code)
+    
+    def format_quarter_localized(self, short: bool = False, language_code: Optional[str] = None) -> str:
+        """多语言季度格式 (v1.0.8)
+        
+        Args:
+            short: 是否使用短名称  
+            language_code: 语言代码，None时使用全局设置
+            
+        Returns:
+            本地化的季度名称
+        """
+        quarter = self.get_quarter()
+        return Language.get_quarter_name(quarter, short, language_code)
+    
+    def format_relative_localized(self, reference_date: Optional['Date'] = None, 
+                                 language_code: Optional[str] = None) -> str:
+        """多语言相对时间格式 (v1.0.8)
+        
+        Args:
+            reference_date: 参考日期，None时使用今天
+            language_code: 语言代码，None时使用全局设置
+            
+        Returns:
+            本地化的相对时间描述
+            
+        Example:
+            >>> Date.set_language('en_US')
+            >>> today = Date.today()
+            >>> tomorrow = today.add_days(1)
+            >>> print(tomorrow.format_relative_localized())  # tomorrow
+        """
+        if reference_date is None:
+            reference_date = Date.today()
+        
+        diff_days = reference_date.calculate_difference_days(self)
+        
+        if diff_days == 0:
+            return Language.format_relative_time('today', language_code=language_code)
+        elif diff_days == 1:
+            return Language.format_relative_time('tomorrow', language_code=language_code)
+        elif diff_days == -1:
+            return Language.format_relative_time('yesterday', language_code=language_code)
+        elif diff_days > 0:
+            if diff_days <= 6:
+                return Language.format_relative_time('days_later', diff_days, language_code)
+            elif diff_days <= 28:
+                weeks = diff_days // 7
+                return Language.format_relative_time('weeks_later', weeks, language_code)
+            elif diff_days <= 365:
+                months = diff_days // 30
+                return Language.format_relative_time('months_later', months, language_code)
+            else:
+                years = diff_days // 365
+                return Language.format_relative_time('years_later', years, language_code)
+        else:
+            abs_days = abs(diff_days)
+            if abs_days <= 6:
+                return Language.format_relative_time('days_ago', abs_days, language_code)
+            elif abs_days <= 28:
+                weeks = abs_days // 7
+                return Language.format_relative_time('weeks_ago', weeks, language_code)
+            elif abs_days <= 365:
+                months = abs_days // 30
+                return Language.format_relative_time('months_ago', months, language_code)
+            else:
+                years = abs_days // 365
+                return Language.format_relative_time('years_ago', years, language_code)
+    
+    def format_lunar(self, include_year: bool = True, include_zodiac: bool = False,
+                    language_code: Optional[str] = None) -> str:
+        """农历格式化 (v1.0.8)
+        
+        Args:
+            include_year: 是否包含年份
+            include_zodiac: 是否包含生肖
+            language_code: 语言代码，None时使用全局设置
+            
+        Returns:
+            农历日期字符串
+            
+        Example:
+            >>> date = Date('20250415')
+            >>> print(date.format_lunar())  # 农历2025年三月十八
+            >>> print(date.format_lunar(include_zodiac=True))  # 乙巳(蛇)年三月十八
+        """
+        lunar = self.to_lunar()
+        return lunar.format_chinese(include_year, include_zodiac)
+    
+    def format_lunar_compact(self) -> str:
+        """农历紧凑格式 (v1.0.8)
+        
+        Returns:
+            农历紧凑格式字符串
+            
+        Example:
+            >>> date = Date('20250415')
+            >>> print(date.format_lunar_compact())  # 20250318
+        """
+        lunar = self.to_lunar()
+        return lunar.format_compact()
+    
     # =============================================
     # get_* 系列：获取方法
     # =============================================
@@ -754,6 +1029,42 @@ class Date:
         quarter_end_months = {3: 31, 6: 30, 9: 30, 12: 31}
         return (self.month in quarter_end_months and 
                 self.day == quarter_end_months[self.month])
+    
+    def is_lunar_new_year(self) -> bool:
+        """是否为农历新年 (v1.0.8)
+        
+        Returns:
+            是否为农历正月初一
+        """
+        lunar = self.to_lunar()
+        return lunar.month == 1 and lunar.day == 1 and not lunar.is_leap
+    
+    def is_lunar_month_start(self) -> bool:
+        """是否为农历月初 (v1.0.8)
+        
+        Returns:
+            是否为农历月初一
+        """
+        lunar = self.to_lunar()
+        return lunar.day == 1
+    
+    def is_lunar_month_mid(self) -> bool:
+        """是否为农历月中 (v1.0.8)
+        
+        Returns:
+            是否为农历十五
+        """
+        lunar = self.to_lunar()
+        return lunar.day == 15
+    
+    def is_lunar_leap_month(self) -> bool:
+        """是否在农历闰月 (v1.0.8)
+        
+        Returns:
+            是否为农历闰月
+        """
+        lunar = self.to_lunar()
+        return lunar.is_leap
     
     def is_holiday(self, country: str = 'CN') -> bool:
         """是否为节假日（增强版实现）
@@ -1087,6 +1398,58 @@ class Date:
     
     def __hash__(self) -> int:
         return hash(self.to_tuple())
+    
+    def compare_lunar(self, other: 'Date') -> int:
+        """农历日期比较 (v1.0.8)
+        
+        Args:
+            other: 另一个Date对象
+            
+        Returns:
+            -1: self < other, 0: self == other, 1: self > other
+            
+        Example:
+            >>> date1 = Date.from_lunar(2025, 1, 1)  # 农历正月初一
+            >>> date2 = Date.from_lunar(2025, 1, 15) # 农历正月十五
+            >>> print(date1.compare_lunar(date2))    # -1
+        """
+        lunar_self = self.to_lunar()
+        lunar_other = other.to_lunar()
+        
+        if lunar_self < lunar_other:
+            return -1
+        elif lunar_self > lunar_other:
+            return 1
+        else:
+            return 0
+    
+    def is_same_lunar_month(self, other: 'Date') -> bool:
+        """是否同一农历月份 (v1.0.8)
+        
+        Args:
+            other: 另一个Date对象
+            
+        Returns:
+            是否为同一农历月份
+        """
+        lunar_self = self.to_lunar()
+        lunar_other = other.to_lunar()
+        return (lunar_self.year == lunar_other.year and
+                lunar_self.month == lunar_other.month and
+                lunar_self.is_leap == lunar_other.is_leap)
+    
+    def is_same_lunar_day(self, other: 'Date') -> bool:
+        """是否同一农历日期 (v1.0.8)
+        
+        Args:
+            other: 另一个Date对象
+            
+        Returns:
+            是否为同一农历日期
+        """
+        lunar_self = self.to_lunar()
+        lunar_other = other.to_lunar()
+        return lunar_self == lunar_other
     
     # =============================================
     # 向后兼容的旧API
