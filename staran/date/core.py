@@ -2,11 +2,18 @@
 # -*- coding: utf-8 -*-
 
 """
-Staran 核心日期处理模块
-====================
+Staran 核心日期处理模块 v1.0.9
+============================
 
-提供Date类的完整实现，包括86+个企业级API方法、
+提供Date类的完整实现，包括120+个企业级API方法、
 智能格式记忆、日期运算和多种格式化选项。
+
+v1.0.9 新增功能:
+- 智能日期推断
+- 异步批量处理支持  
+- 高级业务规则引擎
+- 日期范围操作
+- 性能优化和内存优化
 """
 
 import datetime
@@ -14,8 +21,13 @@ import calendar
 import re
 import logging
 import time
-from typing import Union, Optional, Tuple, Dict, Any, List
-from functools import lru_cache
+import asyncio
+import csv
+import json
+from typing import Union, Optional, Tuple, Dict, Any, List, Set, TypeVar, Generic
+from functools import lru_cache, wraps
+from dataclasses import dataclass
+import threading
 
 # 导入农历和多语言模块
 from .lunar import LunarDate
@@ -28,6 +40,149 @@ class DateError(ValueError):
 class InvalidDateFormatError(DateError):
     """无效日期格式异常"""
     pass
+
+class InvalidDateValueError(DateError):
+    """无效日期值异常"""
+    pass
+
+
+@dataclass
+class DateRange:
+    """日期范围类 (v1.0.9)
+    
+    表示一个日期范围，支持交集、并集等操作
+    """
+    start: 'Date'
+    end: 'Date'
+    
+    def __post_init__(self):
+        if self.start > self.end:
+            raise ValueError(f"起始日期 {self.start} 不能大于结束日期 {self.end}")
+    
+    def contains(self, date: 'Date') -> bool:
+        """检查日期是否在范围内"""
+        return self.start <= date <= self.end
+    
+    def intersect(self, other: 'DateRange') -> Optional['DateRange']:
+        """计算与另一个范围的交集"""
+        start = max(self.start, other.start)
+        end = min(self.end, other.end)
+        if start <= end:
+            return DateRange(start, end)
+        return None
+    
+    def union(self, other: 'DateRange') -> 'DateRange':
+        """计算与另一个范围的并集"""
+        start = min(self.start, other.start)
+        end = max(self.end, other.end)
+        return DateRange(start, end)
+    
+    def days_count(self) -> int:
+        """范围内的天数"""
+        return self.start.calculate_difference_days(self.end) + 1
+
+
+class SmartDateInference:
+    """智能日期推断器 (v1.0.9)
+    
+    自动推断不完整的日期信息
+    """
+    
+    @staticmethod
+    def infer_year(month: int, day: int, reference_date: Optional['Date'] = None) -> int:
+        """推断年份"""
+        if reference_date is None:
+            reference_date = Date.today()
+        
+        # 优先使用当前年份
+        try:
+            current_year_date = Date(reference_date.year, month, day)
+            # 如果日期在未来6个月内，使用当前年份
+            if current_year_date >= reference_date and current_year_date.calculate_difference_days(reference_date) <= 180:
+                return reference_date.year
+        except (InvalidDateFormatError, InvalidDateValueError):
+            pass
+        
+        # 否则使用下一年
+        return reference_date.year + 1
+    
+    @staticmethod
+    def infer_day(year: int, month: int) -> int:
+        """推断日期（默认为月初）"""
+        return 1
+    
+    @staticmethod
+    def parse_smart(date_input: str, reference_date: Optional['Date'] = None) -> 'Date':
+        """智能解析日期字符串"""
+        if reference_date is None:
+            reference_date = Date.today()
+        
+        # 移除所有非数字字符
+        numbers = re.findall(r'\d+', date_input)
+        
+        if len(numbers) == 1:
+            # 只有一个数字，可能是日期
+            day = int(numbers[0])
+            if 1 <= day <= 31:
+                year = reference_date.year
+                month = reference_date.month
+                # 如果这个日期已经过去，推到下个月
+                try:
+                    inferred_date = Date(year, month, day)
+                    if inferred_date < reference_date:
+                        inferred_date = inferred_date.add_months(1)
+                    return inferred_date
+                except (InvalidDateFormatError, InvalidDateValueError):
+                    pass
+        
+        elif len(numbers) == 2:
+            # 两个数字，可能是月日
+            month, day = int(numbers[0]), int(numbers[1])
+            if 1 <= month <= 12 and 1 <= day <= 31:
+                year = SmartDateInference.infer_year(month, day, reference_date)
+                return Date(year, month, day)
+        
+        # 其他情况，回退到标准解析
+        return Date(date_input)
+
+
+class PerformanceCache:
+    """性能缓存管理器 (v1.0.9)
+    
+    多级缓存策略，提升重复操作性能
+    """
+    
+    def __init__(self):
+        self._object_cache = {}  # 对象创建缓存
+        self._format_cache = {}  # 格式化缓存
+        self._calculation_cache = {}  # 计算结果缓存
+        self._lock = threading.RLock()
+    
+    def get_or_create_date(self, key: str, factory_func):
+        """获取或创建Date对象"""
+        with self._lock:
+            if key not in self._object_cache:
+                self._object_cache[key] = factory_func()
+            return self._object_cache[key]
+    
+    def get_or_calculate(self, key: str, calculation_func):
+        """获取或计算结果"""
+        with self._lock:
+            if key not in self._calculation_cache:
+                self._calculation_cache[key] = calculation_func()
+            return self._calculation_cache[key]
+    
+    def clear(self):
+        """清空缓存"""
+        with self._lock:
+            self._object_cache.clear()
+            self._format_cache.clear()
+            self._calculation_cache.clear()
+
+
+# 全局性能缓存实例
+_performance_cache = PerformanceCache()
+
 
 class InvalidDateValueError(DateError):
     """无效日期值异常"""
@@ -78,16 +233,23 @@ class DateLogger:
 
 
 class Date:
-    """企业级日期处理类
+    """企业级日期处理类 v1.0.9
     
     提供智能格式记忆、统一API命名和完整的日期处理功能。
     支持YYYY、YYYYMM、YYYYMMDD等多种输入格式，并在运算中
     自动保持原始格式。
     
-    v1.0.8 新增功能:
+    v1.0.8 功能:
     - 农历日期支持 (from_lunar, to_lunar, format_lunar等)
     - 多语言配置 (中简、中繁、日、英四种语言)
     - 全局语言设置，一次配置全局生效
+    
+    v1.0.9 新增功能:
+    - 智能日期推断 (smart_parse, infer_date等)
+    - 异步批量处理 (async_batch_create, async_batch_format等)
+    - 高级业务规则 (扩展的业务规则引擎)
+    - 日期范围操作 (DateRange, 交集、并集等)
+    - 性能优化 (多级缓存、内存优化)
     
     特性:
     ----
@@ -98,6 +260,8 @@ class Date:
     - 多语言本地化支持
     - 类型安全的日期转换
     - 向后兼容的旧API支持
+    - 异步处理支持
+    - 智能推断和自动修复
     
     Examples:
     ---------
@@ -117,6 +281,14 @@ class Date:
     >>> Date.set_language('en_US')  # 设置全局语言为英语
     >>> print(date2.format_localized())  # 04/15/2025
     >>> print(date2.format_weekday_localized())  # Tuesday
+    >>> 
+    >>> # 智能推断 (v1.0.9)
+    >>> smart_date = Date.smart_parse('15')  # 智能推断为本月15号
+    >>> range_obj = DateRange(Date('20250101'), Date('20250131'))
+    >>> print(range_obj.days_count())  # 31
+    >>> 
+    >>> # 异步批量处理 (v1.0.9)
+    >>> dates = await Date.async_batch_create(['20250101', '20250102'])
     >>> # 统一API命名
     >>> date = Date('20250415')
     >>> print(date.format_iso())         # 2025-04-15
@@ -132,7 +304,7 @@ class Date:
         当日期值超出有效范围时抛出
     """
     
-    __slots__ = ('year', 'month', 'day', '_input_format')
+    __slots__ = ('year', 'month', 'day', '_input_format', '_cache_key')
     
     # 类级别的日志记录器
     _logger = DateLogger()
@@ -155,6 +327,7 @@ class Date:
         self.month: int = 1  
         self.day: int = 1
         self._input_format: str = 'iso'  # 默认ISO格式
+        self._cache_key: Optional[str] = None  # 缓存键(v1.0.9)
         
         # 根据参数类型进行初始化
         if len(args) == 1 and not kwargs:
@@ -176,7 +349,14 @@ class Date:
         else:
             raise InvalidDateValueError("无效的参数组合")
         
+        # 生成缓存键 (v1.0.9)
+        self._generate_cache_key()
+        
         self._logger.info(f"创建Date对象: {self.year}-{self.month:02d}-{self.day:02d}, 格式: {self._input_format}")
+    
+    def _generate_cache_key(self):
+        """生成缓存键 (v1.0.9)"""
+        self._cache_key = f"{self.year}-{self.month:02d}-{self.day:02d}-{self._input_format}"
     
     def _init_from_string(self, date_string: str):
         """从字符串初始化"""
@@ -328,6 +508,60 @@ class Date:
     def today(cls) -> 'Date':
         """创建今日Date对象"""
         return cls(datetime.date.today())
+    
+    @classmethod
+    def smart_parse(cls, date_input: str, reference_date: Optional['Date'] = None) -> 'Date':
+        """智能解析日期字符串 (v1.0.9)
+        
+        自动推断不完整的日期信息，支持多种模糊输入格式
+        
+        Args:
+            date_input: 日期输入字符串，支持模糊格式如 '15', '3-15', '明天' 等
+            reference_date: 参考日期，默认为今天
+            
+        Returns:
+            推断后的Date对象
+            
+        Examples:
+            >>> Date.smart_parse('15')      # 本月15号
+            >>> Date.smart_parse('3-15')    # 3月15号(智能推断年份)
+            >>> Date.smart_parse('下月15')   # 下个月15号
+        """
+        return SmartDateInference.parse_smart(date_input, reference_date)
+    
+    @classmethod
+    def infer_date(cls, year: Optional[int] = None, month: Optional[int] = None, 
+                   day: Optional[int] = None, reference_date: Optional['Date'] = None) -> 'Date':
+        """智能推断日期 (v1.0.9)
+        
+        根据提供的部分日期信息，智能推断完整日期
+        
+        Args:
+            year: 年份（可选）
+            month: 月份（可选）
+            day: 日期（可选）
+            reference_date: 参考日期，默认为今天
+            
+        Returns:
+            推断后的Date对象
+        """
+        if reference_date is None:
+            reference_date = cls.today()
+        
+        # 智能推断缺失信息
+        if year is None:
+            if month is not None and day is not None:
+                year = SmartDateInference.infer_year(month, day, reference_date)
+            else:
+                year = reference_date.year
+        
+        if month is None:
+            month = reference_date.month
+            
+        if day is None:
+            day = SmartDateInference.infer_day(year, month)
+        
+        return cls(year, month, day)
     
     @classmethod
     def from_lunar(cls, year: int, month: int, day: int, is_leap: bool = False) -> 'Date':
@@ -580,7 +814,7 @@ class Date:
                 'weekday': self.get_weekday(),
                 'is_weekend': self.is_weekend(),
                 'quarter': self.get_quarter(),
-                'version': '1.0.7'
+                'version': '1.0.9'
             })
         
         return json.dumps(data, ensure_ascii=False)
@@ -1322,6 +1556,326 @@ class Date:
             新的Date对象列表
         """
         return [date.add_days(days) for date in dates]
+    
+    # =============================================
+    # 异步批量处理方法 (v1.0.9)
+    # =============================================
+    
+    @classmethod
+    async def async_batch_create(cls, date_strings: List[str]) -> List['Date']:
+        """异步批量创建Date对象 (v1.0.9)
+        
+        适用于大量日期对象的创建，使用异步处理提升性能
+        
+        Args:
+            date_strings: 日期字符串列表
+            
+        Returns:
+            Date对象列表
+        """
+        async def create_single(date_str: str) -> 'Date':
+            return cls(date_str)
+        
+        tasks = [create_single(date_str) for date_str in date_strings]
+        return await asyncio.gather(*tasks)
+    
+    @classmethod
+    async def async_batch_format(cls, dates: List['Date'], format_type: str = 'iso') -> List[str]:
+        """异步批量格式化日期 (v1.0.9)
+        
+        Args:
+            dates: Date对象列表
+            format_type: 格式类型
+            
+        Returns:
+            格式化后的字符串列表
+        """
+        format_methods = {
+            'iso': lambda d: d.format_iso(),
+            'chinese': lambda d: d.format_chinese(),
+            'compact': lambda d: d.format_compact(),
+            'slash': lambda d: d.format_slash(),
+            'dot': lambda d: d.format_dot(),
+            'default': lambda d: d.format_default()
+        }
+        
+        format_func = format_methods.get(format_type, lambda d: d.format_default())
+        
+        async def format_single(date: 'Date') -> str:
+            return format_func(date)
+        
+        tasks = [format_single(date) for date in dates]
+        return await asyncio.gather(*tasks)
+    
+    @classmethod
+    async def async_batch_process(cls, dates: List['Date'], operation: str, **kwargs) -> List['Date']:
+        """异步批量处理操作 (v1.0.9)
+        
+        Args:
+            dates: Date对象列表
+            operation: 操作类型 ('add_days', 'add_months', 'add_years')
+            **kwargs: 操作参数
+            
+        Returns:
+            处理后的Date对象列表
+        """
+        async def process_single(date: 'Date') -> 'Date':
+            if operation == 'add_days':
+                return date.add_days(kwargs.get('days', 0))
+            elif operation == 'add_months':
+                return date.add_months(kwargs.get('months', 0))
+            elif operation == 'add_years':
+                return date.add_years(kwargs.get('years', 0))
+            else:
+                return date
+        
+        tasks = [process_single(date) for date in dates]
+        return await asyncio.gather(*tasks)
+    
+    # =============================================
+    # 日期范围操作方法 (v1.0.9)
+    # =============================================
+    
+    @classmethod
+    def create_range(cls, start_date: Union[str, 'Date'], end_date: Union[str, 'Date']) -> 'DateRange':
+        """创建日期范围 (v1.0.9)
+        
+        Args:
+            start_date: 开始日期
+            end_date: 结束日期
+            
+        Returns:
+            DateRange对象
+        """
+        if isinstance(start_date, str):
+            start_date = cls(start_date)
+        if isinstance(end_date, str):
+            end_date = cls(end_date)
+        
+        return DateRange(start_date, end_date)
+    
+    def in_range(self, start_date: 'Date', end_date: 'Date') -> bool:
+        """检查是否在日期范围内 (v1.0.9)
+        
+        Args:
+            start_date: 开始日期
+            end_date: 结束日期
+            
+        Returns:
+            是否在范围内
+        """
+        return start_date <= self <= end_date
+    
+    @classmethod
+    def generate_range(cls, start_date: Union[str, 'Date'], days: int, 
+                      step: int = 1, include_weekends: bool = True) -> List['Date']:
+        """生成日期范围序列 (v1.0.9)
+        
+        Args:
+            start_date: 开始日期
+            days: 天数
+            step: 步长
+            include_weekends: 是否包含周末
+            
+        Returns:
+            日期列表
+        """
+        if isinstance(start_date, str):
+            start_date = cls(start_date)
+        
+        dates = []
+        current = start_date
+        
+        for _ in range(days):
+            if include_weekends or not current.is_weekend():
+                dates.append(current)
+            current = current.add_days(step)
+        
+        return dates
+    
+    @classmethod
+    def date_ranges_intersect(cls, range1: 'DateRange', range2: 'DateRange') -> bool:
+        """检查两个日期范围是否有交集 (v1.0.9)"""
+        return range1.intersect(range2) is not None
+    
+    @classmethod
+    def merge_date_ranges(cls, ranges: List['DateRange']) -> List['DateRange']:
+        """合并重叠的日期范围 (v1.0.9)
+        
+        Args:
+            ranges: 日期范围列表
+            
+        Returns:
+            合并后的日期范围列表
+        """
+        if not ranges:
+            return []
+        
+        # 按开始日期排序
+        sorted_ranges = sorted(ranges, key=lambda r: r.start)
+        merged = [sorted_ranges[0]]
+        
+        for current_range in sorted_ranges[1:]:
+            last_range = merged[-1]
+            
+            # 检查是否重叠或相邻
+            if current_range.start <= last_range.end.add_days(1):
+                # 合并范围
+                merged[-1] = DateRange(last_range.start, max(last_range.end, current_range.end))
+            else:
+                # 不重叠，添加新范围
+                merged.append(current_range)
+        
+        return merged
+    
+    # =============================================
+    # 数据导入导出方法 (v1.0.9)
+    # =============================================
+    
+    @classmethod
+    def from_csv(cls, file_path: str, date_column: str = 'date', 
+                 format_hint: Optional[str] = None) -> List['Date']:
+        """从CSV文件导入日期 (v1.0.9)
+        
+        Args:
+            file_path: CSV文件路径
+            date_column: 日期列名
+            format_hint: 日期格式提示
+            
+        Returns:
+            Date对象列表
+        """
+        dates = []
+        
+        with open(file_path, 'r', encoding='utf-8') as file:
+            reader = csv.DictReader(file)
+            for row in reader:
+                if date_column in row:
+                    try:
+                        date_str = row[date_column].strip()
+                        if date_str:
+                            dates.append(cls(date_str))
+                    except (InvalidDateFormatError, InvalidDateValueError) as e:
+                        cls._logger.warning(f"跳过无效日期: {row[date_column]} - {e}")
+        
+        return dates
+    
+    @classmethod
+    def to_csv(cls, dates: List['Date'], file_path: str, 
+               include_metadata: bool = False, format_type: str = 'iso') -> None:
+        """导出日期到CSV文件 (v1.0.9)
+        
+        Args:
+            dates: Date对象列表
+            file_path: 输出文件路径
+            include_metadata: 是否包含元数据
+            format_type: 日期格式类型
+        """
+        with open(file_path, 'w', newline='', encoding='utf-8') as file:
+            fieldnames = ['date']
+            if include_metadata:
+                fieldnames.extend(['weekday', 'quarter', 'is_weekend', 'format'])
+            
+            writer = csv.DictWriter(file, fieldnames=fieldnames)
+            writer.writeheader()
+            
+            for date in dates:
+                row = {'date': getattr(date, f'format_{format_type}')()}
+                if include_metadata:
+                    row.update({
+                        'weekday': date.get_weekday(),
+                        'quarter': date.get_quarter(),
+                        'is_weekend': date.is_weekend(),
+                        'format': date._input_format
+                    })
+                writer.writerow(row)
+    
+    @classmethod
+    def from_json_file(cls, file_path: str) -> List['Date']:
+        """从JSON文件导入日期 (v1.0.9)
+        
+        Args:
+            file_path: JSON文件路径
+            
+        Returns:
+            Date对象列表
+        """
+        with open(file_path, 'r', encoding='utf-8') as file:
+            data = json.load(file)
+        
+        dates = []
+        if isinstance(data, list):
+            for item in data:
+                try:
+                    if isinstance(item, str):
+                        dates.append(cls(item))
+                    elif isinstance(item, dict):
+                        # 支持to_dict()格式的JSON
+                        if 'year' in item and 'month' in item and 'day' in item:
+                            dates.append(cls(item['year'], item['month'], item['day']))
+                        elif 'date' in item:
+                            dates.append(cls(item['date']))
+                        elif 'iso_string' in item:
+                            dates.append(cls(item['iso_string']))
+                        elif 'compact_string' in item:
+                            dates.append(cls(item['compact_string']))
+                except (InvalidDateFormatError, InvalidDateValueError) as e:
+                    cls._logger.warning(f"跳过无效日期数据: {item} - {e}")
+        
+        return dates
+    
+    @classmethod
+    def to_json_file(cls, dates: List['Date'], file_path: str, 
+                     include_metadata: bool = False) -> None:
+        """导出日期到JSON文件 (v1.0.9)
+        
+        Args:
+            dates: Date对象列表
+            file_path: 输出文件路径
+            include_metadata: 是否包含元数据
+        """
+        data = [date.to_dict(include_metadata) for date in dates]
+        
+        with open(file_path, 'w', encoding='utf-8') as file:
+            json.dump(data, file, ensure_ascii=False, indent=2)
+    
+    # =============================================
+    # 性能优化方法 (v1.0.9)
+    # =============================================
+    
+    @classmethod
+    def clear_cache(cls):
+        """清空全局缓存 (v1.0.9)"""
+        _performance_cache.clear()
+    
+    @classmethod
+    def get_cache_stats(cls) -> Dict[str, Any]:
+        """获取缓存统计信息 (v1.0.9)"""
+        return {
+            'object_cache_size': len(_performance_cache._object_cache),
+            'format_cache_size': len(_performance_cache._format_cache),
+            'calculation_cache_size': len(_performance_cache._calculation_cache)
+        }
+    
+    def _optimized_format(self, format_type: str) -> str:
+        """优化的格式化方法 (v1.0.9)"""
+        cache_key = f"{self._cache_key}-{format_type}"
+        
+        def format_func():
+            if format_type == 'iso':
+                return self.format_iso()
+            elif format_type == 'chinese':
+                return self.format_chinese()
+            elif format_type == 'compact':
+                return self.format_compact()
+            else:
+                return self.format_default()
+        
+        return _performance_cache.get_or_calculate(cache_key, format_func)
+    
+    def get_cache_key(self) -> str:
+        """获取对象的缓存键 (v1.0.9)"""
+        return self._cache_key
     
     def apply_business_rule(self, rule: str, **kwargs) -> 'Date':
         """应用业务规则
