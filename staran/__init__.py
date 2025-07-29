@@ -27,7 +27,7 @@ Staran - 企业级多功能工具库
     2025年04月15日
 """
 
-__version__ = "1.0.6"
+__version__ = "1.0.7"
 __author__ = "Staran Team"
 __email__ = "team@staran.dev"
 __license__ = "MIT"

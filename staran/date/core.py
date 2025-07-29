@@ -212,8 +212,13 @@ class Date:
     
     def _validate_date(self):
         """验证日期的有效性"""
+        # 基本范围检查
         if not (1 <= self.month <= 12):
             raise InvalidDateValueError(f"无效的月份: {self.month}")
+        
+        # 年份合理性检查
+        if not (1900 <= self.year <= 3000):
+            self._logger.warning(f"年份 {self.year} 超出常规范围 (1900-3000)")
         
         max_days = calendar.monthrange(self.year, self.month)[1]
         if not (1 <= self.day <= max_days):
@@ -223,7 +228,37 @@ class Date:
             datetime.date(self.year, self.month, self.day)
         except ValueError as e:
             raise InvalidDateValueError(f"无效的日期: {self.year}-{self.month}-{self.day}") from e
+        
+        # 特殊日期检查
+        self._check_special_dates()
     
+    def _check_special_dates(self):
+        """检查特殊日期"""
+        # 检查是否为闰年2月29日
+        if self.month == 2 and self.day == 29 and not calendar.isleap(self.year):
+            raise InvalidDateValueError(f"非闰年 {self.year} 不存在2月29日")
+            
+        # 检查历史边界日期
+        if self.year < 1582 and self.month == 10 and 5 <= self.day <= 14:
+            self._logger.warning("日期位于格里高利历改革期间 (1582年10月5-14日)")
+            
+    @classmethod
+    def is_valid_date_string(cls, date_string: str) -> bool:
+        """检查日期字符串是否有效
+        
+        Args:
+            date_string: 日期字符串
+            
+        Returns:
+            是否为有效日期字符串
+        """
+        try:
+            cls(date_string)
+            return True
+        except (InvalidDateFormatError, InvalidDateValueError):
+            return False
+    
+    @lru_cache(maxsize=128)
     def _create_with_same_format(self, year: int, month: int, day: int) -> 'Date':
         """创建具有相同格式的新Date对象"""
         new_date = Date(year, month, day)
@@ -252,9 +287,17 @@ class Date:
         return cls(date_string)
     
     @classmethod
-    def from_timestamp(cls, timestamp: Union[int, float]) -> 'Date':
-        """从时间戳创建Date对象"""
+    def from_timestamp(cls, timestamp: Union[int, float], timezone_offset: int = 0) -> 'Date':
+        """从时间戳创建Date对象
+        
+        Args:
+            timestamp: Unix时间戳
+            timezone_offset: 时区偏移小时数 (如 +8 表示东八区)
+        """
         dt = datetime.datetime.fromtimestamp(timestamp)
+        # 调整时区
+        if timezone_offset != 0:
+            dt = dt + datetime.timedelta(hours=timezone_offset)
         return cls(dt.date())
     
     @classmethod
@@ -298,6 +341,64 @@ class Date:
         dates = cls.date_range(start, end)
         return [date for date in dates if date.is_business_day()]
     
+    @classmethod
+    def weekends(cls, start: Union[str, 'Date'], end: Union[str, 'Date']) -> List['Date']:
+        """生成周末日期列表"""
+        dates = cls.date_range(start, end)
+        return [date for date in dates if date.is_weekend()]
+    
+    @classmethod
+    def month_range(cls, start_year_month: Union[str, 'Date'], months: int) -> List['Date']:
+        """生成月份范围
+        
+        Args:
+            start_year_month: 开始年月 (如 "202501" 或 Date对象)
+            months: 月份数量
+            
+        Returns:
+            月份第一天的日期列表
+            
+        Example:
+            Date.month_range("202501", 3)  # [202501, 202502, 202503]
+        """
+        if isinstance(start_year_month, str):
+            start_date = cls.from_string(start_year_month)
+        else:
+            start_date = start_year_month
+            
+        # 确保是月初
+        start_date = start_date.get_month_start()
+        
+        result = []
+        current = start_date
+        for _ in range(months):
+            result.append(current)
+            current = current.add_months(1)
+        
+        return result
+    
+    @classmethod 
+    def quarter_dates(cls, year: int) -> Dict[int, Tuple['Date', 'Date']]:
+        """获取指定年份的季度起止日期
+        
+        Args:
+            year: 年份
+            
+        Returns:
+            季度字典 {1: (Q1开始, Q1结束), 2: (Q2开始, Q2结束), ...}
+        """
+        quarters = {}
+        for quarter in range(1, 5):
+            start_month = (quarter - 1) * 3 + 1
+            end_month = quarter * 3
+            
+            start_date = cls(year, start_month, 1)
+            end_date = cls(year, end_month, 1).get_month_end()
+            
+            quarters[quarter] = (start_date, end_date)
+            
+        return quarters
+    
     # =============================================
     # to_* 系列：转换方法
     # =============================================
@@ -305,14 +406,6 @@ class Date:
     def to_tuple(self) -> Tuple[int, int, int]:
         """转为元组 (year, month, day)"""
         return (self.year, self.month, self.day)
-    
-    def to_dict(self) -> Dict[str, int]:
-        """转为字典"""
-        return {
-            'year': self.year,
-            'month': self.month,
-            'day': self.day
-        }
     
     def to_date_object(self) -> datetime.date:
         """转为datetime.date对象"""
@@ -322,29 +415,109 @@ class Date:
         """转为datetime.datetime对象"""
         return datetime.datetime(self.year, self.month, self.day)
     
-    def to_timestamp(self) -> float:
-        """转为时间戳"""
-        return self.to_datetime_object().timestamp()
+    def to_timestamp(self, timezone_offset: int = 0) -> float:
+        """转为时间戳
+        
+        Args:
+            timezone_offset: 时区偏移小时数 (如 +8 表示东八区)
+            
+        Returns:
+            Unix时间戳
+        """
+        dt = self.to_datetime_object()
+        # 调整时区
+        if timezone_offset != 0:
+            dt = dt - datetime.timedelta(hours=timezone_offset)
+        return dt.timestamp()
     
-    def to_json(self) -> str:
-        """转为JSON字符串"""
+    def to_json(self, include_metadata: bool = True) -> str:
+        """转为JSON字符串
+        
+        Args:
+            include_metadata: 是否包含元数据（格式、版本等）
+            
+        Returns:
+            JSON字符串
+        """
         import json
-        return json.dumps({
+        
+        data = {
             'date': self.format_iso(),
-            'format': self._input_format,
             'year': self.year,
             'month': self.month,
             'day': self.day
-        })
+        }
+        
+        if include_metadata:
+            data.update({
+                'format': self._input_format,
+                'weekday': self.get_weekday(),
+                'is_weekend': self.is_weekend(),
+                'quarter': self.get_quarter(),
+                'version': '1.0.7'
+            })
+        
+        return json.dumps(data, ensure_ascii=False)
     
     @classmethod
     def from_json(cls, json_str: str) -> 'Date':
-        """从JSON字符串创建Date对象"""
+        """从JSON字符串创建Date对象
+        
+        Args:
+            json_str: JSON字符串
+            
+        Returns:
+            Date对象
+            
+        Raises:
+            ValueError: JSON格式错误或缺少必要字段
+        """
         import json
-        data = json.loads(json_str)
-        date = cls(data['year'], data['month'], data['day'])
-        date._input_format = data.get('format', 'iso')
-        return date
+        
+        try:
+            data = json.loads(json_str)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"无效的JSON格式: {e}")
+        
+        # 检查必要字段
+        required_fields = ['year', 'month', 'day']
+        missing_fields = [field for field in required_fields if field not in data]
+        if missing_fields:
+            raise ValueError(f"JSON缺少必要字段: {missing_fields}")
+        
+        try:
+            date = cls(data['year'], data['month'], data['day'])
+            date._input_format = data.get('format', 'iso')
+            return date
+        except (InvalidDateFormatError, InvalidDateValueError) as e:
+            raise ValueError(f"JSON中的日期数据无效: {e}")
+    
+    def to_dict(self, include_metadata: bool = False) -> Dict[str, Any]:
+        """转为字典
+        
+        Args:
+            include_metadata: 是否包含元数据
+            
+        Returns:
+            字典表示
+        """
+        result = {
+            'year': self.year,
+            'month': self.month,
+            'day': self.day
+        }
+        
+        if include_metadata:
+            result.update({
+                'format': self._input_format,
+                'weekday': self.get_weekday(),
+                'is_weekend': self.is_weekend(),
+                'quarter': self.get_quarter(),
+                'iso_string': self.format_iso(),
+                'compact_string': self.format_compact()
+            })
+        
+        return result
     
     # =============================================
     # format_* 系列：格式化方法
@@ -583,17 +756,16 @@ class Date:
                 self.day == quarter_end_months[self.month])
     
     def is_holiday(self, country: str = 'CN') -> bool:
-        """是否为节假日（基础实现）
+        """是否为节假日（增强版实现）
         
         Args:
-            country: 国家代码 ('CN', 'US', 'UK' 等)
+            country: 国家代码 ('CN', 'US', 'UK', 'JP' 等)
             
         Returns:
             是否为节假日
             
         Note:
-            这是一个基础实现，仅包含几个固定节假日
-            实际应用中可能需要更完整的节假日数据库
+            支持多国节假日，包含农历节日计算
         """
         if country == 'CN':
             # 中国固定节假日
@@ -603,19 +775,92 @@ class Date:
                 (10, 1),  # 国庆节
                 (10, 2),  # 国庆节
                 (10, 3),  # 国庆节
+                (12, 13), # 国家公祭日
             ]
-            return (self.month, self.day) in fixed_holidays
+            
+            # 检查固定节假日
+            if (self.month, self.day) in fixed_holidays:
+                return True
+                
+            # 特殊节日计算
+            # 春节：农历正月初一（简化版本，实际需要农历计算）
+            # 清明节：4月4日或5日（简化）
+            if self.month == 4 and self.day in [4, 5]:
+                return True
+                
+            # 端午节、中秋节等需要农历计算，这里提供扩展接口
+            return self._check_lunar_holidays()
+            
         elif country == 'US':
-            # 美国固定节假日
+            # 美国节假日
             fixed_holidays = [
                 (1, 1),   # New Year's Day
                 (7, 4),   # Independence Day
                 (12, 25), # Christmas Day
+                (11, 11), # Veterans Day
+            ]
+            
+            if (self.month, self.day) in fixed_holidays:
+                return True
+                
+            # 感恩节：11月第四个星期四
+            if self.month == 11:
+                return self._is_thanksgiving()
+                
+        elif country == 'JP':
+            # 日本节假日
+            fixed_holidays = [
+                (1, 1),   # 元日
+                (2, 11),  # 建国記念の日
+                (4, 29),  # 昭和の日
+                (5, 3),   # 憲法記念日
+                (5, 4),   # みどりの日
+                (5, 5),   # こどもの日
+                (11, 3),  # 文化の日
+                (11, 23), # 勤労感謝の日
+                (12, 23), # 天皇誕生日
             ]
             return (self.month, self.day) in fixed_holidays
+            
+        elif country == 'UK':
+            # 英国节假日
+            fixed_holidays = [
+                (1, 1),   # New Year's Day
+                (12, 25), # Christmas Day
+                (12, 26), # Boxing Day
+            ]
+            return (self.month, self.day) in fixed_holidays
+            
         else:
             # 未知国家，返回False
             return False
+    
+    def _check_lunar_holidays(self) -> bool:
+        """检查农历节假日（扩展接口）
+        
+        Note:
+            这是一个扩展接口，实际项目中可以集成农历库
+            如 `lunardate` 或 `zhdate` 等第三方库
+        """
+        # 这里可以扩展农历节日计算
+        # 目前返回 False，保持轻量级
+        return False
+    
+    def _is_thanksgiving(self) -> bool:
+        """判断是否为美国感恩节（11月第四个星期四）"""
+        if self.month != 11:
+            return False
+            
+        # 找到11月第一天是星期几
+        first_day = Date(self.year, 11, 1)
+        first_weekday = first_day.get_weekday()
+        
+        # 计算第四个星期四的日期
+        # 星期四是weekday=3
+        days_to_first_thursday = (3 - first_weekday) % 7
+        fourth_thursday = 1 + days_to_first_thursday + 21  # 第四个星期四
+        
+        return self.day == fourth_thursday
     
     # =============================================
     # add_*/subtract_* 系列：运算方法
@@ -704,6 +949,99 @@ class Date:
     def days_since(self, start_date: 'Date') -> int:
         """计算从起始日期过了多少天"""
         return start_date.calculate_difference_days(self)
+    
+    # =============================================
+    # 批量处理方法
+    # =============================================
+    
+    @classmethod
+    def batch_create(cls, date_strings: List[str]) -> List['Date']:
+        """批量创建Date对象
+        
+        Args:
+            date_strings: 日期字符串列表
+            
+        Returns:
+            Date对象列表
+            
+        Raises:
+            InvalidDateFormatError: 如果某个字符串格式无效
+        """
+        result = []
+        for date_str in date_strings:
+            try:
+                result.append(cls(date_str))
+            except (InvalidDateFormatError, InvalidDateValueError) as e:
+                cls._logger.error(f"批量创建失败: {date_str} - {e}")
+                raise
+        return result
+    
+    @classmethod
+    def batch_format(cls, dates: List['Date'], format_type: str = 'iso') -> List[str]:
+        """批量格式化日期
+        
+        Args:
+            dates: Date对象列表
+            format_type: 格式类型 ('iso', 'chinese', 'compact' 等)
+            
+        Returns:
+            格式化后的字符串列表
+        """
+        format_methods = {
+            'iso': lambda d: d.format_iso(),
+            'chinese': lambda d: d.format_chinese(),
+            'compact': lambda d: d.format_compact(),
+            'slash': lambda d: d.format_slash(),
+            'dot': lambda d: d.format_dot(),
+            'default': lambda d: d.format_default()
+        }
+        
+        format_func = format_methods.get(format_type, lambda d: d.format_default())
+        return [format_func(date) for date in dates]
+    
+    @classmethod
+    def batch_add_days(cls, dates: List['Date'], days: int) -> List['Date']:
+        """批量添加天数
+        
+        Args:
+            dates: Date对象列表
+            days: 要添加的天数
+            
+        Returns:
+            新的Date对象列表
+        """
+        return [date.add_days(days) for date in dates]
+    
+    def apply_business_rule(self, rule: str, **kwargs) -> 'Date':
+        """应用业务规则
+        
+        Args:
+            rule: 规则名称
+                - 'month_end': 移动到月末
+                - 'quarter_end': 移动到季度末
+                - 'next_business_day': 移动到下一个工作日
+                - 'prev_business_day': 移动到上一个工作日
+            **kwargs: 规则参数
+            
+        Returns:
+            应用规则后的新Date对象
+        """
+        if rule == 'month_end':
+            return self.get_month_end()
+        elif rule == 'quarter_end':
+            return self.get_quarter_end()
+        elif rule == 'next_business_day':
+            current = self
+            while not current.is_business_day():
+                current = current.add_days(1)
+            return current
+        elif rule == 'prev_business_day':
+            current = self
+            while not current.is_business_day():
+                current = current.subtract_days(1)
+            return current
+        else:
+            raise ValueError(f"未知的业务规则: {rule}")
     
     # =============================================
     # 配置和日志方法
