@@ -1,4 +1,4 @@
-# Staran v1.0.4 - 企业级多功能工具库
+# Staran v1.0.5 - 企业级多功能工具库
 
 [![Python Version](https://img.shields.io/badge/python-3.7%2B-blue.svg)](https://python.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -11,7 +11,7 @@
 `staran` 旨在成为一个可扩展的工具库，包含多个独立的、高质量的模块。每个模块都专注于解决特定领域的问题，并遵循统一的设计标准。
 
 ### 当前模块
-- **`date`**: 企业级日期处理工具 (v1.0.4)
+- **`date`**: 企业级日期处理工具 (v1.0.5)
 
 ### 未来模块
 - `file`: 文件处理工具
@@ -64,7 +64,7 @@ print(future)  # 20250715
 
 ### 📚 文档
 
-有关 `date` 模块的完整 API 和用法，请参阅 **[`date` 模块 API 参考](staran/date/api_reference.md)**。
+有关 `date` 模块的完整 API 和用法，请参阅 **[`date` 模块 API 参考](https://github.com/StarLxa/staran/blob/master/staran/date/api_reference.md)**。
 
 ## 🧪 测试
 
@@ -97,10 +97,9 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 ## 📞 支持
 
 - 📧 Email: simon@wsi.hk
-- 📖 文档: https://staran.readthedocs.io/
-- 🐛 问题报告: https://github.com/starlxa/staran/issues
+-  问题报告: https://github.com/starlxa/staran/issues
 
 ---
 
-**Staran v1.0.4** - 让工具开发变得简单而强大 ✨
+**Staran v1.0.5** - 让工具开发变得简单而强大 ✨
 
