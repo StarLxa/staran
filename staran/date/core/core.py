@@ -2,18 +2,18 @@
 # -*- coding: utf-8 -*-
 
 """
-Staran 核心日期处理模块 v1.0.9
+Staran 核心日期处理模块 v1.0.10
 ============================
 
-提供Date类的完整实现，包括120+个企业级API方法、
+提供Date类的完整实现，包括150+个企业级API方法、
 智能格式记忆、日期运算和多种格式化选项。
 
-v1.0.9 新增功能:
-- 智能日期推断
-- 异步批量处理支持  
-- 高级业务规则引擎
-- 日期范围操作
-- 性能优化和内存优化
+v1.0.10 新增功能:
+- 完整时区支持
+- 日期表达式解析
+- 二十四节气扩展
+- 数据可视化集成
+- REST API接口
 """
 
 import datetime
@@ -32,6 +32,21 @@ import threading
 # 导入农历和多语言模块
 from .lunar import LunarDate
 from .i18n import Language
+
+# 导入 v1.0.10 新增模块
+try:
+    from ..extensions.timezone import Timezone, TimezoneInfo
+    from ..extensions.expressions import DateExpressionParser, ParseResult
+    from ..extensions.solar_terms import SolarTerms, SolarTerm
+    from ..integrations.visualization import DateVisualization, ChartData, TimeSeriesPoint
+    ENHANCED_FEATURES_AVAILABLE = True
+except ImportError as e:
+    # 向后兼容，如果新模块不可用
+    ENHANCED_FEATURES_AVAILABLE = False
+    Timezone = None
+    DateExpressionParser = None
+    SolarTerms = None
+    DateVisualization = None
 
 class DateError(ValueError):
     """Date模块的特定异常基类"""
@@ -2036,3 +2051,519 @@ class Date:
     def month_end(self) -> 'Date':
         """旧API: 获取月末"""
         return self.get_month_end()
+    
+    # =============================================
+    # v1.0.10 新增功能 - 时区支持
+    # =============================================
+    
+    def to_timezone(self, timezone_code: str, time_part: Optional[datetime.time] = None) -> datetime.datetime:
+        """转换到指定时区 (v1.0.10)
+        
+        Args:
+            timezone_code: 时区代码
+            time_part: 时间部分，默认为00:00:00
+            
+        Returns:
+            指定时区的datetime对象
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not Timezone:
+            raise NotImplementedError("时区功能需要安装完整版本")
+        
+        if time_part is None:
+            time_part = datetime.time(0, 0, 0)
+        
+        dt = datetime.datetime.combine(self.to_date_object(), time_part)
+        return Timezone.convert_timezone(dt, 'UTC', timezone_code)
+    
+    def from_timezone(self, dt: datetime.datetime, timezone_code: str) -> 'Date':
+        """从指定时区的datetime创建Date (v1.0.10)
+        
+        Args:
+            dt: datetime对象
+            timezone_code: 时区代码
+            
+        Returns:
+            Date对象
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not Timezone:
+            raise NotImplementedError("时区功能需要安装完整版本")
+        
+        utc_dt = Timezone.convert_timezone(dt, timezone_code, 'UTC')
+        return Date(utc_dt.date())
+    
+    def get_timezone_info(self, timezone_code: str) -> Dict[str, Any]:
+        """获取时区信息 (v1.0.10)
+        
+        Args:
+            timezone_code: 时区代码
+            
+        Returns:
+            时区信息字典
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not Timezone:
+            raise NotImplementedError("时区功能需要安装完整版本")
+        
+        return Timezone.get_timezone_display_info(timezone_code)
+    
+    @classmethod
+    def get_supported_timezones(cls) -> List[str]:
+        """获取支持的时区列表 (v1.0.10)
+        
+        Returns:
+            时区代码列表
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not Timezone:
+            return []
+        
+        return Timezone.list_timezones()
+    
+    # =============================================
+    # v1.0.10 新增功能 - 日期表达式解析
+    # =============================================
+    
+    @classmethod
+    def parse_expression(cls, expression: str) -> Optional['Date']:
+        """解析自然语言日期表达式 (v1.0.10)
+        
+        Args:
+            expression: 日期表达式，如"明天"、"下周一"等
+            
+        Returns:
+            解析成功返回Date对象，失败返回None
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not DateExpressionParser:
+            raise NotImplementedError("表达式解析功能需要安装完整版本")
+        
+        parser = DateExpressionParser()
+        result = parser.parse(expression)
+        
+        if result.success and result.date:
+            return cls(result.date)
+        return None
+    
+    @classmethod
+    def parse_expression_detailed(cls, expression: str) -> Dict[str, Any]:
+        """详细解析日期表达式 (v1.0.10)
+        
+        Args:
+            expression: 日期表达式
+            
+        Returns:
+            详细解析结果
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not DateExpressionParser:
+            raise NotImplementedError("表达式解析功能需要安装完整版本")
+        
+        parser = DateExpressionParser()
+        result = parser.parse(expression)
+        
+        return {
+            'success': result.success,
+            'date': cls(result.date) if result.success and result.date else None,
+            'confidence': result.confidence,
+            'matched_pattern': result.matched_pattern,
+            'extracted_components': result.extracted_components,
+            'expression': result.expression
+        }
+    
+    def matches_expression(self, expression: str) -> bool:
+        """检查是否匹配日期表达式 (v1.0.10)
+        
+        Args:
+            expression: 日期表达式
+            
+        Returns:
+            是否匹配
+        """
+        parsed_date = self.parse_expression(expression)
+        return parsed_date == self if parsed_date else False
+    
+    # =============================================
+    # v1.0.10 新增功能 - 二十四节气支持
+    # =============================================
+    
+    def get_solar_term(self) -> Optional[SolarTerm]:
+        """获取最接近的节气 (v1.0.10)
+        
+        Returns:
+            节气对象，如果没有找到返回None
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not SolarTerms:
+            raise NotImplementedError("节气功能需要安装完整版本")
+        
+        return SolarTerms.find_solar_term_by_date(self.to_date_object())
+    
+    def is_solar_term(self) -> bool:
+        """是否为节气日 (v1.0.10)
+        
+        Returns:
+            是否为节气日
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not SolarTerms:
+            return False
+        
+        return SolarTerms.is_solar_term_date(self.to_date_object())
+    
+    def get_next_solar_term(self) -> SolarTerm:
+        """获取下一个节气 (v1.0.10)
+        
+        Returns:
+            下一个节气对象
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not SolarTerms:
+            raise NotImplementedError("节气功能需要安装完整版本")
+        
+        return SolarTerms.get_next_solar_term(self.to_date_object())
+    
+    def get_previous_solar_term(self) -> SolarTerm:
+        """获取上一个节气 (v1.0.10)
+        
+        Returns:
+            上一个节气对象
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not SolarTerms:
+            raise NotImplementedError("节气功能需要安装完整版本")
+        
+        return SolarTerms.get_previous_solar_term(self.to_date_object())
+    
+    def get_solar_term_season(self) -> str:
+        """获取当前节气季节 (v1.0.10)
+        
+        Returns:
+            季节名称
+        """
+        solar_term = self.get_solar_term()
+        return solar_term.season if solar_term else "未知"
+    
+    def days_to_next_solar_term(self) -> int:
+        """到下一个节气的天数 (v1.0.10)
+        
+        Returns:
+            天数
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not SolarTerms:
+            raise NotImplementedError("节气功能需要安装完整版本")
+        
+        return SolarTerms.get_days_to_next_solar_term(self.to_date_object())
+    
+    @classmethod
+    def get_year_solar_terms(cls, year: int) -> List[SolarTerm]:
+        """获取指定年份的所有节气 (v1.0.10)
+        
+        Args:
+            year: 年份
+            
+        Returns:
+            节气列表
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not SolarTerms:
+            raise NotImplementedError("节气功能需要安装完整版本")
+        
+        return SolarTerms.get_all_solar_terms(year)
+    
+    @classmethod
+    def get_season_solar_terms(cls, year: int, season: str) -> List[SolarTerm]:
+        """获取指定年份某季节的节气 (v1.0.10)
+        
+        Args:
+            year: 年份
+            season: 季节名称
+            
+        Returns:
+            节气列表
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not SolarTerms:
+            raise NotImplementedError("节气功能需要安装完整版本")
+        
+        return SolarTerms.get_solar_terms_by_season(year, season)
+    
+    # =============================================
+    # v1.0.10 新增功能 - 数据可视化支持
+    # =============================================
+    
+    def create_timeline_chart(self, events: List[str], library: str = 'echarts') -> ChartData:
+        """创建时间轴图表 (v1.0.10)
+        
+        Args:
+            events: 事件列表
+            library: 图表库名称
+            
+        Returns:
+            图表数据对象
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not DateVisualization:
+            raise NotImplementedError("可视化功能需要安装完整版本")
+        
+        viz = DateVisualization()
+        return viz.create_timeline_data([self.to_date_object()], events, library)
+    
+    @classmethod
+    def create_calendar_heatmap(cls, date_values: Dict['Date', float], year: int, library: str = 'echarts') -> ChartData:
+        """创建日历热力图 (v1.0.10)
+        
+        Args:
+            date_values: 日期-数值映射
+            year: 年份
+            library: 图表库名称
+            
+        Returns:
+            图表数据对象
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not DateVisualization:
+            raise NotImplementedError("可视化功能需要安装完整版本")
+        
+        # 转换Date对象为datetime.date
+        converted_values = {date.to_date_object(): value for date, value in date_values.items()}
+        
+        viz = DateVisualization()
+        return viz.create_calendar_heatmap(converted_values, year, library)
+    
+    @classmethod
+    def create_time_series_chart(cls, time_series_data: List[Tuple['Date', float]], library: str = 'echarts') -> ChartData:
+        """创建时间序列图表 (v1.0.10)
+        
+        Args:
+            time_series_data: 时间序列数据点列表
+            library: 图表库名称
+            
+        Returns:
+            图表数据对象
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not DateVisualization or not TimeSeriesPoint:
+            raise NotImplementedError("可视化功能需要安装完整版本")
+        
+        # 转换为TimeSeriesPoint对象
+        time_series = []
+        for date, value in time_series_data:
+            point = TimeSeriesPoint(date.to_date_object(), value)
+            time_series.append(point)
+        
+        viz = DateVisualization()
+        return viz.create_time_series_chart(time_series, library)
+    
+    @classmethod
+    def create_date_distribution_chart(cls, dates: List['Date'], group_by: str = 'month', library: str = 'echarts') -> ChartData:
+        """创建日期分布图 (v1.0.10)
+        
+        Args:
+            dates: 日期列表
+            group_by: 分组方式
+            library: 图表库名称
+            
+        Returns:
+            图表数据对象
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not DateVisualization:
+            raise NotImplementedError("可视化功能需要安装完整版本")
+        
+        # 转换Date对象为datetime.date
+        date_objects = [date.to_date_object() for date in dates]
+        
+        viz = DateVisualization()
+        return viz.create_date_distribution_chart(date_objects, group_by, library)
+    
+    def export_chart_data(self, chart_data: ChartData, format: str = 'json') -> str:
+        """导出图表数据 (v1.0.10)
+        
+        Args:
+            chart_data: 图表数据对象
+            format: 导出格式
+            
+        Returns:
+            导出的数据字符串
+        """
+        if not ENHANCED_FEATURES_AVAILABLE or not DateVisualization:
+            raise NotImplementedError("可视化功能需要安装完整版本")
+        
+        viz = DateVisualization()
+        return viz.export_chart_data(chart_data, format)
+    
+    # =============================================
+    # v1.0.10 增强功能 - 扩展日期范围操作
+    # =============================================
+    
+    def create_range_to(self, end_date: 'Date') -> DateRange:
+        """创建到指定日期的范围 (v1.0.10)
+        
+        Args:
+            end_date: 结束日期
+            
+        Returns:
+            日期范围对象
+        """
+        return DateRange(self, end_date)
+    
+    def create_range_with_days(self, days: int) -> DateRange:
+        """创建指定天数的范围 (v1.0.10)
+        
+        Args:
+            days: 天数（正数表示未来，负数表示过去）
+            
+        Returns:
+            日期范围对象
+        """
+        if days >= 0:
+            return DateRange(self, self.add_days(days))
+        else:
+            return DateRange(self.add_days(days), self)
+    
+    def in_range(self, start_date: 'Date', end_date: 'Date') -> bool:
+        """检查是否在指定范围内 (v1.0.10)
+        
+        Args:
+            start_date: 开始日期
+            end_date: 结束日期
+            
+        Returns:
+            是否在范围内
+        """
+        return start_date <= self <= end_date
+    
+    @classmethod
+    def create_date_sequence(cls, start_date: 'Date', end_date: 'Date', step_days: int = 1) -> List['Date']:
+        """创建日期序列 (v1.0.10)
+        
+        Args:
+            start_date: 开始日期
+            end_date: 结束日期
+            step_days: 步长天数
+            
+        Returns:
+            日期序列
+        """
+        sequence = []
+        current = start_date
+        
+        while current <= end_date:
+            sequence.append(current)
+            current = current.add_days(step_days)
+        
+        return sequence
+    
+    @classmethod
+    def find_common_dates(cls, date_lists: List[List['Date']]) -> List['Date']:
+        """查找多个日期列表的共同日期 (v1.0.10)
+        
+        Args:
+            date_lists: 日期列表的列表
+            
+        Returns:
+            共同日期列表
+        """
+        if not date_lists:
+            return []
+        
+        common_dates = set(date_lists[0])
+        for date_list in date_lists[1:]:
+            common_dates.intersection_update(date_list)
+        
+        return sorted(list(common_dates))
+    
+    # =============================================
+    # v1.0.10 实用工具方法
+    # =============================================
+    
+    def get_version_info(self) -> Dict[str, Any]:
+        """获取版本信息 (v1.0.10)
+        
+        Returns:
+            版本信息字典
+        """
+        return {
+            'version': '1.0.10',
+            'enhanced_features': ENHANCED_FEATURES_AVAILABLE,
+            'available_modules': {
+                'timezone': Timezone is not None,
+                'expressions': DateExpressionParser is not None,
+                'solar_terms': SolarTerms is not None,
+                'visualization': DateVisualization is not None
+            },
+            'api_count': len([attr for attr in dir(self) if not attr.startswith('_')]),
+            'core_features': [
+                'date_creation', 'formatting', 'calculations', 'comparisons',
+                'lunar_calendar', 'multilingual', 'business_rules', 'caching'
+            ],
+            'v1010_features': [
+                'timezone_support', 'expression_parsing', 'solar_terms',
+                'data_visualization', 'rest_api'
+            ] if ENHANCED_FEATURES_AVAILABLE else []
+        }
+    
+    @classmethod
+    def get_feature_status(cls) -> Dict[str, bool]:
+        """获取功能状态 (v1.0.10)
+        
+        Returns:
+            功能状态字典
+        """
+        return {
+            'core_date_operations': True,
+            'lunar_calendar': True,
+            'multilingual_support': True,
+            'batch_processing': True,
+            'business_rules': True,
+            'timezone_support': ENHANCED_FEATURES_AVAILABLE and Timezone is not None,
+            'expression_parsing': ENHANCED_FEATURES_AVAILABLE and DateExpressionParser is not None,
+            'solar_terms': ENHANCED_FEATURES_AVAILABLE and SolarTerms is not None,
+            'data_visualization': ENHANCED_FEATURES_AVAILABLE and DateVisualization is not None,
+            'rest_api': ENHANCED_FEATURES_AVAILABLE
+        }
+    
+    def help(self, category: str = 'all') -> str:
+        """获取帮助信息 (v1.0.10)
+        
+        Args:
+            category: 帮助类别
+            
+        Returns:
+            帮助文本
+        """
+        help_text = {
+            'creation': """
+Date对象创建方法:
+- Date() / Date.today() - 今天
+- Date(year, month, day) - 指定日期
+- Date("2025-07-29") - 字符串解析
+- Date.parse_expression("明天") - 表达式解析 (v1.0.10)
+- Date.from_lunar(2025, 1, 1) - 农历创建
+            """,
+            'formatting': """
+日期格式化方法:
+- format_iso() - ISO格式
+- format_chinese() - 中文格式
+- format_localized() - 本地化格式
+- format_custom(fmt) - 自定义格式
+            """,
+            'calculations': """
+日期计算方法:
+- add_days(n) / subtract_days(n) - 天数计算
+- add_months(n) / subtract_months(n) - 月份计算
+- add_years(n) / subtract_years(n) - 年份计算
+- calculate_difference_days(other) - 计算差值
+            """,
+            'timezone': """
+时区功能 (v1.0.10):
+- to_timezone(tz) - 转换到指定时区
+- get_timezone_info(tz) - 获取时区信息
+- get_supported_timezones() - 支持的时区列表
+            """,
+            'solar_terms': """
+二十四节气 (v1.0.10):
+- get_solar_term() - 获取当前节气
+- is_solar_term() - 是否节气日
+- get_next_solar_term() - 下一个节气
+- days_to_next_solar_term() - 到下个节气天数
+            """,
+            'visualization': """
+数据可视化 (v1.0.10):
+- create_timeline_chart() - 时间轴图表
+- create_calendar_heatmap() - 日历热力图
+- create_time_series_chart() - 时间序列图
+- create_date_distribution_chart() - 分布图
+            """
+        }
+        
+        if category == 'all':
+            return '\n'.join(help_text.values())
+        else:
+            return help_text.get(category, f"未知类别: {category}")

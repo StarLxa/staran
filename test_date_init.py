@@ -45,13 +45,7 @@ def parse_expression(expression: str):
         return None
     parser = DateExpressionParser()
     result = parser.parse(expression)
-    if result and result.success and result.date:
-        # 确保返回Date对象而不是datetime.date
-        if hasattr(result.date, 'year'):
-            return Date(result.date.year, result.date.month, result.date.day)
-        else:
-            return result.date
-    return None
+    return result.date if result and result.success else None
 
 def get_version_info():
     """获取版本和功能信息"""

@@ -9,8 +9,9 @@
 
 ## 📚 文档导航
 
-- **[API 参考文档](API_REFERENCE.md)** - 完整的API文档和使用指南
-- **[更新日志](CHANGELOG.md)** - 详细的版本历史和更新记录
+- **[API 参考文档](https://github.com/StarLxa/staran/tree/master/API_REFERENCE.md)** - 完整的API文档和使用指南
+- **[更新日志](https://github.com/StarLxa/staran/tree/master/CHANGELOG.md)** - 详细的版本历史和更新记录
+- **[PyPI包页面](https://pypi.org/project/staran/)** - 安装和版本信息
 - **[快速开始](#快速开始)** - 立即开始使用
 
 ## 🚀 核心理念
@@ -55,6 +56,9 @@ staran/
 ### 安装
 
 ```bash
+# 从PyPI安装 (推荐)
+pip install staran
+
 # 从源码安装
 git clone https://github.com/StarLxa/staran.git
 cd staran
@@ -133,8 +137,9 @@ python -m staran.date.tests.run_tests
 
 ## 📖 文档
 
-- **[API参考文档](API_REFERENCE.md)** - 完整的API文档、使用指南和示例
-- **[更新日志](CHANGELOG.md)** - 详细的版本历史和功能变更
+- **[API参考文档](https://github.com/StarLxa/staran/tree/master/API_REFERENCE.md)** - 完整的API文档、使用指南和示例
+- **[更新日志](https://github.com/StarLxa/staran/tree/master/CHANGELOG.md)** - 详细的版本历史和功能变更
+- **[PyPI包页面](https://pypi.org/project/staran/)** - 安装和版本信息
 
 ## 🛠️ 开发
 
@@ -161,7 +166,8 @@ python -m staran.date.tests.run_tests
 ## 📞 支持
 
 - **GitHub Issues**: 报告Bug和功能请求
-- **文档**: [API参考文档](API_REFERENCE.md)
+- **文档**: [API参考文档](https://github.com/StarLxa/staran/tree/master/API_REFERENCE.md)
+- **PyPI**: [PyPI包页面](https://pypi.org/project/staran/)
 - **示例**: 查看 `examples/` 目录
 
 ## 📄 许可证
