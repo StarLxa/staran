@@ -6,7 +6,7 @@ Staran 日期处理库 v1.0.10 - 简化版导入
 """
 
 # 版本信息
-__version__ = "1.0.10"
+__version__ = "1.0.11"
 __author__ = "StarAn"
 __email__ = "starlxa@icloud.com"
 

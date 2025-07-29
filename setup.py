@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="staran",
-    version="1.0.10",
+    version="1.0.11",
     description="staran - 企业级Python日期处理库",
     long_description=open("README.md", encoding="utf-8").read(),
     long_description_content_type="text/markdown",
